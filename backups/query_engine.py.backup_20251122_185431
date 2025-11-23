@@ -1,0 +1,192 @@
+"""
+Query Engine for chaining SQL-like operations
+"""
+
+class QueryEngine:
+    def __init__(self, table):
+        """
+        Initialize QueryEngine with a table
+        
+        Args:
+            table (Table): Table object to query
+        """
+        self.table = table
+        self.operations = []
+    
+    def filter(self, condition):
+        """
+        Add filter operation to chain
+        
+        Args:
+            condition (callable): Function that takes a row and returns bool
+            
+        Returns:
+            QueryEngine: Self for chaining
+        """
+        self.operations.append(('filter', condition))
+        return self
+    
+    def select(self, columns):
+        """
+        Add select/projection operation to chain
+        
+        Args:
+            columns (list): List of column names to select
+            
+        Returns:
+            QueryEngine: Self for chaining
+        """
+        self.operations.append(('select', columns))
+        return self
+    
+    def group_by(self, column):
+        """
+        Add group by operation to chain
+        
+        Args:
+            column (str): Column name to group by
+            
+        Returns:
+            QueryEngine: Self for chaining
+        """
+        self.operations.append(('group_by', column))
+        return self
+    
+    def aggregate(self, column, function):
+        """
+        Add aggregation operation to chain
+        
+        Args:
+            column (str): Column name to aggregate
+            function (str): Aggregation function (SUM, AVG, COUNT, MIN, MAX)
+            
+        Returns:
+            QueryEngine: Self for chaining
+        """
+        self.operations.append(('aggregate', (column, function)))
+        return self
+    
+    def order_by(self, column, ascending=True):
+        """
+        Add order by operation to chain
+        
+        Args:
+            column (str): Column name to sort by
+            ascending (bool): Sort order
+            
+        Returns:
+            QueryEngine: Self for chaining
+        """
+        self.operations.append(('order_by', (column, ascending)))
+        return self
+    
+    def limit(self, n):
+        """
+        Add limit operation to chain
+        
+        Args:
+            n (int): Number of rows to return
+            
+        Returns:
+            QueryEngine: Self for chaining
+        """
+        self.operations.append(('limit', n))
+        return self
+    
+    def execute(self):
+        """
+        Execute all operations in the chain
+        
+        Returns:
+            list: Result data
+        """
+        if self.table.chunked:
+            return self._execute_chunked()
+        else:
+            return self._execute_normal()
+    
+    def _execute_normal(self):
+        """Execute operations on full dataset"""
+        result = self.table.data
+        
+        for op_type, op_param in self.operations:
+            if op_type == 'filter':
+                result = [row for row in result if op_param(row)]
+            
+            elif op_type == 'select':
+                result = [{col: row.get(col) for col in op_param} for row in result]
+            
+            elif op_type == 'group_by':
+                # Simple group by implementation
+                groups = {}
+                for row in result:
+                    key = row[op_param]
+                    if key not in groups:
+                        groups[key] = []
+                    groups[key].append(row)
+                result = groups
+            
+            elif op_type == 'aggregate':
+                column, function = op_param
+                if function == 'SUM':
+                    result = sum(row[column] for row in result)
+                elif function == 'AVG':
+                    values = [row[column] for row in result]
+                    result = sum(values) / len(values) if values else 0
+                elif function == 'COUNT':
+                    result = len(result)
+                elif function == 'MIN':
+                    result = min(row[column] for row in result)
+                elif function == 'MAX':
+                    result = max(row[column] for row in result)
+            
+            elif op_type == 'order_by':
+                column, ascending = op_param
+                result = sorted(result, key=lambda x: x.get(column), reverse=not ascending)
+            
+            elif op_type == 'limit':
+                result = result[:op_param]
+        
+        return result
+    
+    def _execute_chunked(self):
+        """Execute operations with chunked processing"""
+        results = []
+        
+        # Process each chunk
+        for chunk in self.table.get_chunks():
+            chunk_result = chunk
+            
+            for op_type, op_param in self.operations:
+                if op_type == 'filter':
+                    chunk_result = [row for row in chunk_result if op_param(row)]
+                
+                elif op_type == 'select':
+                    chunk_result = [{col: row.get(col) for col in op_param} for row in chunk_result]
+                
+                elif op_type == 'limit':
+                    # For limit, we need to track total
+                    if len(results) + len(chunk_result) >= op_param:
+                        needed = op_param - len(results)
+                        chunk_result = chunk_result[:needed]
+                        results.extend(chunk_result)
+                        return results
+            
+            results.extend(chunk_result)
+        
+        # Apply operations that need full dataset
+        for op_type, op_param in self.operations:
+            if op_type == 'order_by':
+                column, ascending = op_param
+                results = sorted(results, key=lambda x: x.get(column), reverse=not ascending)
+            
+            elif op_type == 'group_by':
+                groups = {}
+                for row in results:
+                    key = row[op_param]
+                    if key not in groups:
+                        groups[key] = []
+                    groups[key].append(row)
+                results = groups
+        
+        return results

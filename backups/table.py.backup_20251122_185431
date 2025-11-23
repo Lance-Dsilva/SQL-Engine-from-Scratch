@@ -1,0 +1,41 @@
+"""
+Table class for representing and managing data tables
+"""
+
+class Table:
+    def __init__(self, headers, data, name, chunked=False, chunk_size=None):
+        """
+        Initialize a Table
+        
+        Args:
+            headers (list): List of column names
+            data (list): List of rows (each row is a dict or list)
+            name (str): Table name
+            chunked (bool): Whether data is loaded in chunked mode
+            chunk_size (int): Size of each chunk if chunked=True
+        """
+        self.headers = headers
+        self.data = data
+        self.name = name
+        self.chunked = chunked
+        self.chunk_size = chunk_size or 10000
+        
+    def get_chunks(self):
+        """
+        Generator to yield chunks of data
+        
+        Yields:
+            list: Chunk of rows
+        """
+        if not self.chunked:
+            yield self.data
+        else:
+            for i in range(0, len(self.data), self.chunk_size):
+                yield self.data[i:i + self.chunk_size]
+    
+    def __len__(self):
+        """Return number of rows"""
+        return len(self.data)
+    
+    def __repr__(self):
+        return f"Table(name='{self.name}', rows={len(self.data)}, columns={len(self.headers)}, chunked={self.chunked})"

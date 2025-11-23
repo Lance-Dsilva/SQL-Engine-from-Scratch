@@ -1,6 +1,4 @@
 import streamlit as st
-import tempfile
-import os
 from sql_component.parsers.csv_parser import CSVParser
 from sql_component.core.table import Table
 from sql_component.core.query_engine import QueryEngine
@@ -11,10 +9,6 @@ st.set_page_config(
     page_icon="🗄️",
     layout="wide"
 )
-
-# CRITICAL: Set Streamlit to allow large file uploads (up to 500MB)
-# This must be set before any file uploaders
-# File upload limit set in .streamlit/config.toml (500MB)
 
 # Initialize session state
 if 'data_loaded' not in st.session_state:
@@ -31,22 +25,14 @@ if 'show_code_export' not in st.session_state:
     st.session_state.show_code_export = False
 if 'query_result' not in st.session_state:
     st.session_state.query_result = None
-if 'temp_file_path' not in st.session_state:
-    st.session_state.temp_file_path = None
 
 # Header
 st.title("🗄️ SQL Engine from Scratch")
-st.markdown("Custom CSV processing with chunking support for files up to 500MB")
+st.markdown("Custom CSV processing with optional chunking for large datasets")
 
 # Create tabs - ONLY 2 TABS
 tab_names = ["📁 Load Data", "🔨 Build Query"]
 tabs = st.tabs(tab_names)
-
-def get_file_size_mb(file):
-    """Get file size in MB"""
-    if hasattr(file, 'size'):
-        return file.size / (1024 * 1024)
-    return 0
 
 # ==================== TAB 1: LOAD DATA ====================
 with tabs[0]:
@@ -54,10 +40,10 @@ with tabs[0]:
     
     st.info("""
     **Choose your loading method:**
-    - **Normal Load:** For files up to 100MB - Fast, all in memory
-    - **Chunked Load:** For files 100MB-500MB - Memory-efficient batch processing
-    
-    **Maximum supported file size: 500MB**
+    - **Normal Load:** For files that fit in memory (<100MB typically)  
+      All data loaded at once for fast operations
+    - **Chunked Load:** For large files that exceed memory limits  
+      Data processed in batches, use Build Query tab for all operations
     """)
     
     col1, col2 = st.columns(2)
@@ -66,67 +52,51 @@ with tabs[0]:
     with col1:
         st.subheader("🔷 Normal Load")
         st.markdown("""
-        **Recommended for files < 100MB**
+        Load entire dataset into memory.
         
         ✅ Fast query execution  
         ✅ All operations available  
-        ✅ Optimal for small to medium files
-        ⚠️ May fail on large files (>100MB)
+        ⚠️ Limited by available RAM
         """)
         
         uploaded_file_normal = st.file_uploader(
-            "Upload CSV file (Max 100MB recommended)", 
+            "Upload CSV file", 
             type=['csv'],
             key="normal_upload"
         )
         
-        if uploaded_file_normal:
-            file_size = get_file_size_mb(uploaded_file_normal)
-            st.caption(f"📊 File size: {file_size:.2f} MB")
-            
-            if file_size > 100:
-                st.warning(f"⚠️ File is {file_size:.2f}MB. Consider using Chunked Load for better performance.")
-        
         if st.button("Load Data Normally", type="primary", key="load_normal"):
             if uploaded_file_normal is not None:
-                file_size = get_file_size_mb(uploaded_file_normal)
-                
-                if file_size > 500:
-                    st.error("❌ File too large! Maximum 500MB supported. Please use a smaller file.")
-                else:
-                    try:
-                        with st.spinner("Loading data..."):
-                            parser = CSVParser()
-                            data = parser.parse_file(uploaded_file_normal)
-                            
-                            st.session_state.table = Table(
-                                data['headers'], 
-                                data['data'], 
-                                uploaded_file_normal.name
-                            )
-                            st.session_state.data_loaded = True
-                            st.session_state.loading_mode = 'normal'
-                            st.session_state.query_operations = []
-                            st.session_state.query_result = None
-                            
-                            st.success(f"""
-                            ✅ Data loaded successfully!
-                            - **File:** {uploaded_file_normal.name}
-                            - **Size:** {file_size:.2f} MB
-                            - **Rows:** {len(data['data']):,}
-                            - **Columns:** {len(data['headers'])}
-                            - **Mode:** Normal (Full load)
-                            """)
-                            
-                            # Show preview
-                            st.subheader("Data Preview")
-                            preview_data = data['data'][:10]
-                            st.dataframe(preview_data, use_container_width=True)
-                            
-                    except MemoryError:
-                        st.error("❌ Out of memory! File too large for normal load. Please use Chunked Load.")
-                    except Exception as e:
-                        st.error(f"❌ Error loading file: {str(e)}")
+                try:
+                    with st.spinner("Loading data..."):
+                        parser = CSVParser()
+                        data = parser.parse_file(uploaded_file_normal)
+                        
+                        st.session_state.table = Table(
+                            data['headers'], 
+                            data['data'], 
+                            uploaded_file_normal.name
+                        )
+                        st.session_state.data_loaded = True
+                        st.session_state.loading_mode = 'normal'
+                        st.session_state.query_operations = []
+                        st.session_state.query_result = None
+                        
+                        st.success(f"""
+                        ✅ Data loaded successfully!
+                        - **File:** {uploaded_file_normal.name}
+                        - **Rows:** {len(data['data']):,}
+                        - **Columns:** {len(data['headers'])}
+                        - **Mode:** Normal (Full load)
+                        """)
+                        
+                        # Show preview
+                        st.subheader("Data Preview")
+                        preview_data = data['data'][:10]
+                        st.dataframe(preview_data, use_container_width=True)
+                        
+                except Exception as e:
+                    st.error(f"❌ Error loading file: {str(e)}")
             else:
                 st.warning("⚠️ Please upload a file first")
     
@@ -134,106 +104,66 @@ with tabs[0]:
     with col2:
         st.subheader("🔶 Chunked Load")
         st.markdown("""
-        **Recommended for files 100MB-500MB**
+        Process large files in batches.
         
-        ✅ Handles large files (up to 500MB)  
+        ✅ Handles files larger than RAM  
         ✅ Memory-efficient processing  
-        ✅ Prevents out-of-memory errors  
-        ⚠️ Uses disk for temporary storage
+        ⚠️ Use Build Query tab for operations
         """)
         
         uploaded_file_chunked = st.file_uploader(
-            "Upload large CSV file (100MB-500MB)", 
+            "Upload large CSV file", 
             type=['csv'],
             key="chunked_upload"
         )
         
-        if uploaded_file_chunked:
-            file_size = get_file_size_mb(uploaded_file_chunked)
-            st.caption(f"📊 File size: {file_size:.2f} MB")
-            
-            if file_size > 500:
-                st.error("❌ File exceeds 500MB limit!")
-            elif file_size < 100:
-                st.info("ℹ️ File is small enough for Normal Load, but Chunked Load will work too.")
-        
         chunk_size = st.number_input(
             "Chunk Size (rows per batch)",
             min_value=1000,
-            max_value=50000,
+            max_value=100000,
             value=10000,
             step=1000,
-            help="Larger chunks = faster but more memory. Start with 10,000."
+            help="Number of rows to process in each batch"
         )
         st.session_state.chunk_size = chunk_size
         
-        # Advanced options
-        with st.expander("⚙️ Advanced Options"):
-            use_disk_cache = st.checkbox("Use disk caching", value=True, 
-                help="Store chunks temporarily on disk to save memory")
-            optimize_memory = st.checkbox("Optimize memory usage", value=True,
-                help="Aggressive memory management for very large files")
-        
         if st.button("Load Data with Chunking", type="primary", key="load_chunked"):
             if uploaded_file_chunked is not None:
-                file_size = get_file_size_mb(uploaded_file_chunked)
-                
-                if file_size > 500:
-                    st.error("❌ File too large! Maximum 500MB supported.")
-                else:
-                    try:
-                        with st.spinner(f"Loading {file_size:.2f}MB file in chunks of {chunk_size:,} rows..."):
-                            # Save uploaded file to temporary location for chunked reading
-                            with tempfile.NamedTemporaryFile(mode='wb', delete=False, suffix='.csv') as tmp:
-                                tmp.write(uploaded_file_chunked.getvalue())
-                                temp_path = tmp.name
-                            
-                            st.session_state.temp_file_path = temp_path
-                            
-                            parser = CSVParser()
-                            
-                            # Get headers and estimate rows
-                            headers, estimated_rows = parser.get_file_info(temp_path)
-                            
-                            st.session_state.table = Table(
-                                headers=headers,
-                                data=None,  # Data not loaded yet
-                                name=uploaded_file_chunked.name,
-                                chunked=True,
-                                chunk_size=chunk_size,
-                                file_path=temp_path,
-                                use_disk_cache=use_disk_cache,
-                                optimize_memory=optimize_memory
-                            )
-                            st.session_state.data_loaded = True
-                            st.session_state.loading_mode = 'chunked'
-                            st.session_state.query_operations = []
-                            st.session_state.query_result = None
-                            
-                            st.success(f"""
-                            ✅ Data loaded successfully!
-                            - **File:** {uploaded_file_chunked.name}
-                            - **Size:** {file_size:.2f} MB
-                            - **Mode:** Chunked ({chunk_size:,} rows/batch)
-                            - **Estimated rows:** ~{estimated_rows:,}
-                            - **Columns:** {len(headers)}
-                            - **Disk caching:** {'Enabled' if use_disk_cache else 'Disabled'}
-                            """)
-                            
-                            # Show preview
-                            st.subheader("Data Preview (First 10 rows)")
-                            preview_data = []
-                            for i, chunk in enumerate(parser.parse_file_in_chunks(temp_path, chunk_size)):
-                                preview_data.extend(chunk[:10])
-                                break
-                            st.dataframe(preview_data, use_container_width=True)
-                            
-                    except MemoryError:
-                        st.error("❌ Out of memory! Try reducing chunk size or enabling disk caching.")
-                    except Exception as e:
-                        st.error(f"❌ Error loading file: {str(e)}")
-                        import traceback
-                        st.code(traceback.format_exc())
+                try:
+                    with st.spinner(f"Loading data in chunks of {chunk_size:,} rows..."):
+                        parser = CSVParser()
+                        data = parser.parse_file_chunked(
+                            uploaded_file_chunked, 
+                            chunk_size=chunk_size
+                        )
+                        
+                        st.session_state.table = Table(
+                            data['headers'], 
+                            data['data'],
+                            uploaded_file_chunked.name,
+                            chunked=True,
+                            chunk_size=chunk_size
+                        )
+                        st.session_state.data_loaded = True
+                        st.session_state.loading_mode = 'chunked'
+                        st.session_state.query_operations = []
+                        st.session_state.query_result = None
+                        
+                        st.success(f"""
+                        ✅ Data loaded successfully!
+                        - **File:** {uploaded_file_chunked.name}
+                        - **Mode:** Chunked ({chunk_size:,} rows/batch)
+                        - **Estimated rows:** {data.get('estimated_rows', 'Unknown'):,}
+                        - **Columns:** {len(data['headers'])}
+                        """)
+                        
+                        # Show preview
+                        st.subheader("Data Preview (First Chunk)")
+                        preview_data = data['data'][:10]
+                        st.dataframe(preview_data, use_container_width=True)
+                        
+                except Exception as e:
+                    st.error(f"❌ Error loading file: {str(e)}")
             else:
                 st.warning("⚠️ Please upload a file first")
     
@@ -249,7 +179,7 @@ with tabs[0]:
         **Current Configuration:**
         - {mode_icon} **Mode:** {st.session_state.loading_mode.upper()}
         - 📊 **Table:** {st.session_state.table.name}
-        {f"- 📈 **Estimated Rows:** ~{st.session_state.table.estimated_rows:,}" if st.session_state.loading_mode == 'chunked' else f"- 📈 **Rows:** {len(st.session_state.table.data):,}"}
+        - 📈 **Rows:** {len(st.session_state.table.data):,}
         - 📋 **Columns:** {len(st.session_state.table.headers)}
         {f"- ⚙️ **Chunk Size:** {st.session_state.chunk_size:,} rows" if st.session_state.loading_mode == 'chunked' else ""}
         
@@ -271,17 +201,19 @@ with tabs[1]:
         🔶 **Chunked Processing Mode** ({st.session_state.chunk_size:,} rows/batch)
         
         Operations will process data in batches to conserve memory. 
-        Perfect for large files (100MB-500MB).
+        Build your query below by adding operations sequentially.
         """)
     else:
         st.info(f"""
         🔷 **Normal Processing Mode**
         
         All data is loaded in memory for fast operations.
+        Build your query below by adding operations sequentially.
         """)
     
     st.markdown("""
     Build complex queries by chaining operations. Each operation is applied in sequence.
+    Perfect for chunked processing where operations are applied batch-by-batch.
     """)
     
     # ==================== QUERY VISUALIZATION ====================
@@ -325,6 +257,10 @@ with tabs[1]:
                     
                     elif op['type'] == 'limit':
                         st.text(f"   Limit: {op['limit']} rows")
+                    
+                    elif op['type'] == 'join':
+                        st.text(f"   Join Type: {op['join_type']}")
+                        st.text(f"   On Column: {op['column']}")
             
             with col2:
                 if st.button("🗑️ Remove", key=f"remove_{i}"):
@@ -348,26 +284,24 @@ with tabs[1]:
                 memory_impact = "🔴 High" if has_expensive_ops or has_groupby else "🟢 Low"
                 st.metric("Memory Impact", memory_impact)
             with col3:
-                efficiency = "🔴 Poor" if has_expensive_ops else "🟢 Excellent"
+                efficiency = "🔴 Poor" if has_expensive_ops else "🟢 Good"
                 st.metric("Chunk Efficiency", efficiency)
             
             if has_expensive_ops:
                 st.error("""
-                ⚠️ **Warning:** ORDER BY/JOIN operations require loading all data into memory.
-                For files >200MB, this may cause memory issues. Consider:
-                - Filtering data first to reduce size
-                - Using LIMIT before sorting
-                - Processing on a machine with more RAM
+                ⚠️ **Warning:** Your query contains operations (ORDER BY or JOIN) that require 
+                loading all data into memory, which defeats the purpose of chunked processing.
+                Consider removing these operations or using normal load mode.
                 """)
             elif has_groupby:
                 st.warning("""
-                ⚠️ **Note:** GROUP BY accumulates results across chunks. 
-                For large files with high cardinality (many unique groups), memory usage may increase.
+                ⚠️ **Note:** GROUP BY operations accumulate results across chunks. 
+                High cardinality (many unique groups) may still use significant memory.
                 """)
             else:
                 st.success("""
-                ✅ **Optimal:** Your query operations work efficiently with chunked processing!
-                Filter and Select operations process each chunk independently with minimal memory.
+                ✅ **Optimal:** Your query operations work efficiently with chunked processing, 
+                maintaining low memory usage throughout execution.
                 """)
     else:
         st.info("👆 No operations added yet. Add operations below to build your query.")
@@ -379,7 +313,7 @@ with tabs[1]:
     
     operation_type = st.selectbox(
         "Select Operation Type",
-        ["Filter (WHERE)", "Select (PROJECT)", "Group By", "Aggregate", "Order By", "Limit"],
+        ["Filter (WHERE)", "Select (PROJECT)", "Group By", "Aggregate", "Order By", "Limit", "Join"],
         key="new_op_type"
     )
     
@@ -389,11 +323,11 @@ with tabs[1]:
         with col1:
             filter_col = st.selectbox("Column", st.session_state.table.headers, key="filter_col")
         with col2:
-            filter_op = st.selectbox("Operator", [">", "<", ">=", "<=", "==", "!=", "contains"], key="filter_op")
+            filter_op = st.selectbox("Operator", [">", "<", ">=", "<=", "==", "!="], key="filter_op")
         with col3:
             filter_val = st.text_input("Value", key="filter_val", placeholder="100")
         
-        st.caption("💡 ✅ EXCELLENT for chunked mode - Applied per batch, minimal memory")
+        st.caption("💡 Filter works efficiently in chunked mode - applied per batch")
         
         if st.button("➕ Add Filter", type="primary", use_container_width=True):
             if filter_val:
@@ -416,7 +350,7 @@ with tabs[1]:
             key="select_cols"
         )
         
-        st.caption("💡 ✅ EXCELLENT for chunked mode - Applied per batch, reduces memory")
+        st.caption("💡 Projection works efficiently in chunked mode - applied per batch")
         
         if st.button("➕ Add Select", type="primary", use_container_width=True):
             if selected_cols:
@@ -443,7 +377,7 @@ with tabs[1]:
             with col2:
                 agg_col = st.selectbox("Column", st.session_state.table.headers, key="agg_col_gb")
             
-            st.caption("⚠️ MODERATE for chunked mode - Accumulates groups, memory depends on cardinality")
+            st.caption("⚠️ GROUP BY accumulates results across chunks - may use more memory")
             
             if st.button("➕ Add Group By + Aggregate", type="primary", use_container_width=True):
                 st.session_state.query_operations.append({
@@ -454,7 +388,7 @@ with tabs[1]:
                 })
                 st.rerun()
         else:
-            st.caption("⚠️ MODERATE for chunked mode - Accumulates groups, memory depends on cardinality")
+            st.caption("⚠️ GROUP BY accumulates results across chunks - may use more memory")
             
             if st.button("➕ Add Group By", type="primary", use_container_width=True):
                 st.session_state.query_operations.append({
@@ -471,7 +405,7 @@ with tabs[1]:
         with col2:
             agg_col = st.selectbox("Column", st.session_state.table.headers, key="agg_only_col")
         
-        st.caption("💡 ✅ GOOD for chunked mode - Combines partial results efficiently")
+        st.caption("💡 Aggregation works well in chunked mode - combines partial results")
         
         if st.button("➕ Add Aggregate", type="primary", use_container_width=True):
             st.session_state.query_operations.append({
@@ -490,9 +424,9 @@ with tabs[1]:
             sort_order = st.selectbox("Order", ["Ascending", "Descending"], key="sort_order")
         
         if st.session_state.loading_mode == 'chunked':
-            st.caption("🔴 POOR for chunked mode - Requires loading ALL data into memory")
+            st.caption("⚠️ ORDER BY requires loading all data - defeats chunked processing")
         else:
-            st.caption("💡 ✅ GOOD for normal mode")
+            st.caption("💡 ORDER BY works efficiently in normal mode")
         
         if st.button("➕ Add Order By", type="primary", use_container_width=True):
             st.session_state.query_operations.append({
@@ -504,9 +438,9 @@ with tabs[1]:
     
     # LIMIT
     elif operation_type == "Limit":
-        limit_val = st.number_input("Number of Rows", min_value=1, value=100, step=10, key="limit_val")
+        limit_val = st.number_input("Number of Rows", min_value=1, value=10, step=1, key="limit_val")
         
-        st.caption("💡 ✅ EXCELLENT for chunked mode - Stops processing early, saves time and memory")
+        st.caption("💡 Limit works efficiently in both modes")
         
         if st.button("➕ Add Limit", type="primary", use_container_width=True):
             st.session_state.query_operations.append({
@@ -514,6 +448,36 @@ with tabs[1]:
                 'limit': limit_val
             })
             st.rerun()
+    
+    # JOIN
+    elif operation_type == "Join":
+        st.warning("⚠️ Join functionality requires uploading a second table")
+        
+        join_file = st.file_uploader("Upload second table", type=['csv'], key="join_file")
+        
+        if join_file:
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                join_type = st.selectbox("Join Type", ["INNER", "LEFT", "RIGHT", "OUTER"], key="join_type")
+            with col2:
+                join_col = st.selectbox("Join Column", st.session_state.table.headers, key="join_col")
+            with col3:
+                join_on_col = st.text_input("Join ON Column (in 2nd table)", key="join_on_col")
+            
+            if st.session_state.loading_mode == 'chunked':
+                st.caption("⚠️ JOIN requires loading tables - defeats chunked processing")
+            else:
+                st.caption("💡 JOIN works efficiently in normal mode")
+            
+            if st.button("➕ Add Join", type="primary", use_container_width=True):
+                st.session_state.query_operations.append({
+                    'type': 'join',
+                    'join_type': join_type,
+                    'column': join_col,
+                    'join_on': join_on_col,
+                    'join_file': join_file.name
+                })
+                st.rerun()
     
     st.markdown("---")
     
@@ -535,16 +499,11 @@ with tabs[1]:
                                 col = op['column']
                                 operator = op['operator']
                                 value = op['value']
-                                
-                                # Handle different operators
-                                if operator == 'contains':
-                                    query = query.filter(lambda row: value.lower() in str(row.get(col, '')).lower())
-                                else:
-                                    try:
-                                        value = float(value)
-                                    except:
-                                        pass
-                                    query = query.filter(lambda row: eval(f"row.get('{col}') {operator} {repr(value)}"))
+                                try:
+                                    value = float(value)
+                                except:
+                                    pass
+                                query = query.filter(lambda row: eval(f"row['{col}'] {operator} {repr(value)}"))
                             
                             elif op['type'] == 'select':
                                 query = query.select(op['columns'])
@@ -567,8 +526,7 @@ with tabs[1]:
                         result = query.execute()
                         st.session_state.query_result = result
                         
-                        result_size = len(result) if isinstance(result, list) else 1
-                        st.success(f"✅ Query executed successfully! Returned {result_size:,} rows")
+                        st.success(f"✅ Query executed successfully! Returned {len(result):,} rows")
                         
                     except Exception as e:
                         st.error(f"❌ Error executing query: {str(e)}")
@@ -597,10 +555,7 @@ with tabs[1]:
             
             for op in st.session_state.query_operations:
                 if op['type'] == 'filter':
-                    if op['operator'] == 'contains':
-                        code += f"    .filter(lambda row: '{op['value']}'.lower() in str(row.get('{op['column']}', '')).lower())\n"
-                    else:
-                        code += f"    .filter(lambda row: row.get('{op['column']}') {op['operator']} {op['value']})\n"
+                    code += f"    .filter(lambda row: row['{op['column']}'] {op['operator']} {op['value']})\n"
                 elif op['type'] == 'select':
                     code += f"    .select({op['columns']})\n"
                 elif op['type'] == 'group_by':
@@ -645,7 +600,7 @@ with tabs[1]:
         elif isinstance(result, dict):
             st.json(result)
         else:
-            st.info("Query executed")
+            st.info("Query executed but returned no data or aggregate result")
             st.write(result)
 
 # ==================== SIDEBAR ====================
@@ -654,15 +609,14 @@ with st.sidebar:
     st.markdown("""
     **SQL Engine from Scratch**
     
-    Supports files up to **500MB** with chunked processing!
+    Custom CSV processing without pandas or csv library.
     
     **Features:**
     - ✅ Custom CSV parser
-    - ✅ Normal load (< 100MB)
-    - ✅ Chunked load (100-500MB)
+    - ✅ Normal and chunked loading
     - ✅ Query builder interface
     - ✅ Memory-efficient operations
-    - ✅ Disk caching option
+    - ✅ Code export
     """)
     
     if st.session_state.data_loaded:
@@ -672,23 +626,14 @@ with st.sidebar:
         mode_emoji = "🔶" if st.session_state.loading_mode == 'chunked' else "🔷"
         st.markdown(f"**Mode:** {mode_emoji} {st.session_state.loading_mode.upper()}")
         st.markdown(f"**Table:** {st.session_state.table.name}")
-        
-        if st.session_state.loading_mode == 'chunked':
-            st.markdown(f"**Estimated Rows:** ~{st.session_state.table.estimated_rows:,}")
-            st.markdown(f"**Chunk Size:** {st.session_state.chunk_size:,}")
-        else:
-            st.markdown(f"**Rows:** {len(st.session_state.table.data):,}")
-        
+        st.markdown(f"**Rows:** {len(st.session_state.table.data):,}")
         st.markdown(f"**Columns:** {len(st.session_state.table.headers)}")
+        if st.session_state.loading_mode == 'chunked':
+            st.markdown(f"**Chunk Size:** {st.session_state.chunk_size:,}")
+        
+        st.divider()
         st.markdown(f"**Operations:** {len(st.session_state.query_operations)}")
     
     st.divider()
     st.caption("Built by: Lance Dsilva, Rafayel Mirijanyan, Chelroy Limas")
     st.caption("DSCI 551 - Fall 2025")
-
-# Cleanup temp files on session end
-if st.session_state.get('temp_file_path') and not st.session_state.data_loaded:
-    try:
-        os.unlink(st.session_state.temp_file_path)
-    except:
-        pass

@@ -1,0 +1,107 @@
+"""
+Custom CSV Parser without using csv library
+"""
+
+class CSVParser:
+    def __init__(self, delimiter=',', quote_char='"'):
+        self.delimiter = delimiter
+        self.quote_char = quote_char
+    
+    def parse_file(self, filepath):
+        """
+        Parse CSV file normally (full load)
+        
+        Args:
+            filepath: File path or file-like object
+            
+        Returns:
+            dict: {'headers': [...], 'data': [...]}
+        """
+        # Handle both file paths and file-like objects (Streamlit uploaded files)
+        if hasattr(filepath, 'read'):
+            content = filepath.read()
+            if isinstance(content, bytes):
+                content = content.decode('utf-8')
+            lines = content.strip().split('\n')
+        else:
+            with open(filepath, 'r', encoding='utf-8') as f:
+                lines = f.readlines()
+        
+        if not lines:
+            return {'headers': [], 'data': []}
+        
+        # Parse headers
+        headers = self._parse_line(lines[0])
+        
+        # Parse data
+        data = []
+        for line in lines[1:]:
+            if line.strip():
+                row_data = self._parse_line(line)
+                # Convert to dict
+                row_dict = {headers[i]: row_data[i] if i < len(row_data) else None 
+                           for i in range(len(headers))}
+                data.append(row_dict)
+        
+        return {
+            'headers': headers,
+            'data': data
+        }
+    
+    def parse_file_chunked(self, filepath, chunk_size=10000):
+        """
+        Parse CSV file with chunking support
+        
+        Args:
+            filepath: File path or file-like object
+            chunk_size (int): Number of rows per chunk
+            
+        Returns:
+            dict: {'headers': [...], 'data': [...], 'estimated_rows': int}
+        """
+        # For now, load all data but structure it for chunked processing
+        # In production, this would use a generator to truly stream data
+        result = self.parse_file(filepath)
+        result['estimated_rows'] = len(result['data'])
+        return result
+    
+    def _parse_line(self, line):
+        """
+        Parse a single CSV line handling quotes and delimiters
+        
+        Args:
+            line (str): Line to parse
+            
+        Returns:
+            list: Parsed values
+        """
+        line = line.strip()
+        values = []
+        current_value = ""
+        in_quotes = False
+        
+        i = 0
+        while i < len(line):
+            char = line[i]
+            
+            if char == self.quote_char:
+                if in_quotes and i + 1 < len(line) and line[i + 1] == self.quote_char:
+                    # Escaped quote
+                    current_value += self.quote_char
+                    i += 1
+                else:
+                    # Toggle quote mode
+                    in_quotes = not in_quotes
+            elif char == self.delimiter and not in_quotes:
+                # End of value
+                values.append(current_value.strip())
+                current_value = ""
+            else:
+                current_value += char
+            
+            i += 1
+        
+        # Add last value
+        values.append(current_value.strip())
+        
+        return values
