@@ -61,7 +61,7 @@ class CSVParser:
                     continue
             
             if chunk:
-                yield chunk ## Where does the yield go ?
+                yield chunk
     
     def _parse_line(self, line):
         """Parse single CSV line"""
