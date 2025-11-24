@@ -14,7 +14,7 @@ class CSVParser:
     
     def parse_file(self, file_obj):
         """Parse entire CSV file"""
-        content = file_obj.read()
+        content = file_obj.read() ## read the whole file in memory
         if isinstance(content, bytes):
             content = content.decode('utf-8')
         lines = content.strip().split('\n')
@@ -22,7 +22,7 @@ class CSVParser:
         if not lines:
             return {'headers': [], 'data': []}
         
-        headers = self._parse_line(lines[0])
+        headers = self._parse_line(lines[0]) ## what is __parse_line?
         data = []
         
         for line in lines[1:]:
@@ -70,7 +70,7 @@ class CSVParser:
                     continue
             
             if chunk:
-                yield chunk
+                yield chunk ## Where does the yield go ?
     
     def _parse_line(self, line):
         """Parse single CSV line"""

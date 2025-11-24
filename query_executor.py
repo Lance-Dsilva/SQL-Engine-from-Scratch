@@ -8,6 +8,7 @@ Simple logic:
 """
 
 from csv_parser import CSVParser
+from merge_sort import _execute_chunked_external_orderby
 
 class QueryExecutor:
     def __init__(self, data, headers, file_path=None, chunked=False, chunk_size=None, 
@@ -50,47 +51,88 @@ class QueryExecutor:
         return result
     
     def _execute_chunked(self, operations):
-        """Execute with chunking (simplified - loads all for join/order)"""
-        # For simplicity, if JOIN or ORDER BY present, load all data
-        has_expensive = any(op['type'] in ['join', 'orderby'] for op in operations)
-        
-        if has_expensive:
-            # Load all data first
+        """
+        Advanced chunk execution without parallel processing.
+        Features:
+        - JOIN  → fallback to full in-memory execution (must see both tables)
+        - ORDER BY (no GROUP BY/HAVING) → external merge sort
+        - Simple WHERE + SELECT + LIMIT → process one chunk at a time
+        """
+        # Detect expensive operations
+        has_join = any(op['type'] == 'join' for op in operations)
+        has_orderby = any(op['type'] == 'orderby' for op in operations)
+        has_group_ops = any(op['type'] in ('groupby', 'having') for op in operations)
+
+        # JOIN, no streaming load data
+        if has_join:
             parser = CSVParser()
             all_data = []
             for chunk in parser.parse_file_in_chunks(self.file_path, self.chunk_size):
                 all_data.extend(chunk)
+            self.data = all_data
+            self.chunked = False
             return self._execute_normal(operations)
-        
-        # Otherwise process in chunks
+
+        # ORDER BY without GROUP BY → external merge sort
+        if has_orderby and not has_group_ops:
+            return self._execute_chunked_external_orderby(operations)
+
+        # Otherwise → simple chunk-based execution
+        return self._execute_chunked_simple(operations)
+    
+    def _execute_chunked_simple(self, operations):
+        """
+        Simple chunk execution:
+        - Applies filters and selects to each chunk
+        - Accumulates results
+        - Applies GROUP BY at the end if needed
+        - Supports LIMIT early stopping
+        """
         parser = CSVParser()
         results = []
+
+        # Extract operations
         limit_val = None
-        
+        groupby_ops = []
+        simple_ops = []
+
         for op in operations:
-            if op['type'] == 'limit':
+            if op['type'] == 'limit' and limit_val is None:
                 limit_val = op['value']
-        
+            elif op['type'] == 'groupby':
+                groupby_ops.append(op)
+            elif op['type'] in ('filter', 'select'):
+                simple_ops.append(op)
+
+        # Stream chunks
         for chunk in parser.parse_file_in_chunks(self.file_path, self.chunk_size):
-            chunk_result = chunk
-            
-            for op in operations:
-                if op['type'] == 'filter':
-                    chunk_result = self._apply_filter(chunk_result, op)
-                elif op['type'] == 'select':
-                    chunk_result = self._apply_select(chunk_result, op)
-            
-            results.extend(chunk_result)
-            
-            if limit_val and len(results) >= limit_val:
-                return results[:limit_val]
-        
-        # Apply groupby if present
-        for op in operations:
-            if op['type'] == 'groupby':
-                results = self._apply_groupby(results, op)
-        
+            if not chunk:
+                continue
+
+            # Apply simple ops (filter/select)
+            chunk_result = self._process_simple_ops_on_chunk(chunk, simple_ops)
+
+            if not chunk_result:
+                continue
+
+            # LIMIT handling — stop early
+            if limit_val is not None:
+                remaining = max(0, limit_val - len(results))
+                if remaining <= 0:
+                    break
+                results.extend(chunk_result[:remaining])
+                if len(results) >= limit_val:
+                    break
+            else:
+                results.extend(chunk_result)
+
+        # Apply GROUP BY at the very end
+        for op in groupby_ops:
+            results = self._apply_groupby(results, op)
+
         return results
+
+
     
     def _apply_select(self, data, op):
         """SELECT columns"""
@@ -310,3 +352,12 @@ class QueryExecutor:
                 continue
         
         return filtered
+
+    def _process_simple_ops_on_chunk(self, chunk, simple_ops):
+        result = chunk
+        for op in simple_ops:
+            if op['type'] == 'filter':
+                result = self._apply_filter(result, op)
+            elif op['type'] == 'select':
+                result = self._apply_select(result, op)
+        return result
