@@ -1,8 +1,43 @@
-
 from csv_parser import CSVParser
 import tempfile
 import heapq
-import json
+from nosql_engine import JSONParser
+
+
+def _serialize_string(value):
+    """Serialize Python string to JSON-compatible representation."""
+    escapes = {'\\': '\\\\', '"': '\\"', '\n': '\\n', '\r': '\\r', '\t': '\\t'}
+    result = []
+    for char in value:
+        result.append(escapes.get(char, char))
+    return f"\"{''.join(result)}\""
+
+
+def _serialize_value(value):
+    """Serialize primitive value to JSON string."""
+    if value is None:
+        return "null"
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, (int, float)):
+        return str(value)
+    return _serialize_string(str(value))
+
+
+def _serialize_row(row):
+    """Serialize a row dictionary without using json module."""
+    parts = []
+    for key, value in row.items():
+        parts.append(f"{_serialize_string(str(key))}:{_serialize_value(value)}")
+    return "{" + ",".join(parts) + "}"
+
+
+def _deserialize_line(line):
+    """Deserialize a JSON line into a Python object using custom parser."""
+    parser = JSONParser()
+    parser.text = line.strip()
+    parser.index = 0
+    return parser._parse_value()
 
 def _execute_chunked_external_orderby(self, operations):
     """
@@ -16,7 +51,7 @@ def _execute_chunked_external_orderby(self, operations):
     column = order_op['column']
     direction = order_op.get('direction', 'ASC').upper()
 
-    # DESC sorting → fallback to memory mode for simplicity
+    # DESC sorting, fallback to memory mode for simplicity
     if direction == 'DESC':
         all_data = []
         for chunk in parser.parse_file_in_chunks(self.file_path, self.chunk_size):
@@ -25,7 +60,7 @@ def _execute_chunked_external_orderby(self, operations):
         self.chunked = False
         return self._execute_normal(operations)
 
-    # Pre-ORDER BY ops (filters/selects)
+    # Pre ORDER BY ops (filters/selects)
     simple_ops = []
     post_limit = None
 
@@ -58,7 +93,7 @@ def _execute_chunked_external_orderby(self, operations):
 
         tmp = tempfile.NamedTemporaryFile(mode="w+", delete=False)
         for row in chunk_result:
-            tmp.write(json.dumps(row) + "\n")
+            tmp.write(_serialize_row(row) + "\n")
         tmp.flush()
         tmp.seek(0)
         temp_files.append(tmp)
@@ -71,7 +106,7 @@ def _execute_chunked_external_orderby(self, operations):
     for idx, tmp in enumerate(temp_files):
         line = tmp.readline()
         if line:
-            row = json.loads(line)
+            row = _deserialize_line(line)
             heapq.heappush(heap, (sort_key(row), idx, row))
 
     results = []
@@ -86,7 +121,7 @@ def _execute_chunked_external_orderby(self, operations):
         tmp = temp_files[file_idx]
         line = tmp.readline()
         if line:
-            next_row = json.loads(line)
+            next_row = _deserialize_line(line)
             heapq.heappush(heap, (sort_key(next_row), file_idx, next_row))
 
     # Cleanup temp files

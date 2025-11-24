@@ -1,12 +1,3 @@
-"""
-CSV Parser - No external libraries
-
-Simple structure:
-1. Read file line by line
-2. Handle quotes and delimiters
-3. Convert to list of dicts
-"""
-
 class CSVParser:
     def __init__(self, delimiter=',', quote_char='"'):
         self.delimiter = delimiter
@@ -22,7 +13,7 @@ class CSVParser:
         if not lines:
             return {'headers': [], 'data': []}
         
-        headers = self._parse_line(lines[0]) ## what is __parse_line?
+        headers = self._parse_line(lines[0]) 
         data = []
         
         for line in lines[1:]:

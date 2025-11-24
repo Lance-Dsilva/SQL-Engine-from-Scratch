@@ -1,9 +1,9 @@
-# E-Commerce Intelligence System
+# Data query Intelligence System
 
 DSCI 551 Fall 2025
 Authors: Lance Dsilva, Chelroy Limas, Rafayel Mirijanyan
 
-## Project Structure (Simple & Easy to Explain)
+## Project Structure
 
 ```
 project/
@@ -13,8 +13,33 @@ project/
 ├── csv_parser.py           # Custom CSV parser (no pandas)
 ├── query_executor.py       # Executes SQL operations
 ├── nosql_executor.py       # Executes NoSQL operations
+├── merge_sort.py           # Executes Mergesort operations
 └── .streamlit/
     └── config.toml         # Configuration (500MB upload limit)
+```
+## Setup
+
+### 1. Create a virtual environment
+
+```bash
+python3 -m venv .venv
+```
+
+Activate it:
+
+- macOS/Linux: `source .venv/bin/activate`
+- Windows PowerShell: `.venv\Scripts\Activate.ps1`
+
+### 2. Install requirements
+
+```bash
+pip install -r requirements.txt
+```
+
+### 3. Run the Streamlit app
+
+```bash
+streamlit run app.py
 ```
 
 ## How It Works
@@ -47,17 +72,22 @@ project/
 - SQL-like query building interface
 - NoSQL document operations
 
-## Installation
+## Implementation Details
 
-```bash
-pip install streamlit
-```
+- **Custom CSV parser (`csv_parser.py`)**  
+  Parses CSV files without relying on `csv`/`pandas`, supports chunked streaming via `parse_file_in_chunks`, and estimates file stats for progress indicators.
 
-## Usage
+- **SQL engine (`sql_engine.py` + `query_executor.py`)**  
+  Maintains query-building state, supports SELECT/JOIN/FILTER/GROUP BY/ORDER BY/LIMIT operations, and can switch between in-memory mode and chunked processing for large files.
 
-```bash
-streamlit run app.py
-```
+- **Chunked ORDER BY with merge sort (`merge_sort.py`)**  
+  Implements an external merge sort: each streamed chunk is filtered, sorted, spilled to a temp file, then merged with a k-way heap. Serialization uses the custom JSON parser from `nosql_engine.py` so no stdlib `json` dependency is required.
+
+- **JOIN handling**  
+  JOIN operations build an index on the join table for INNER/LEFT/RIGHT joins. When chunking is enabled, the system detects JOIN usage and reloads all data in-memory to keep semantics correct.
+
+- **NoSQL engine (`nosql_engine.py`, `nosql_executor.py`)**  
+  Includes a hand-written JSON parser/executor that loads documents, applies filter/project/group/limit operations, and mirrors the SQL interface for JSON datasets.
 
 ## Code Explanation (For Professors)
 
@@ -71,22 +101,6 @@ Parser Layer (csv_parser.py)
     ↓
 Executor Layer (query_executor.py, nosql_executor.py)
 ```
-
-### Key Components
-
-1. **app.py**: User interface with Streamlit
-2. **sql_engine.py**: Manages SQL operations and state
-3. **csv_parser.py**: Parses CSV without external libraries
-4. **query_executor.py**: Executes operations on data
-5. **nosql_engine.py**: Manages NoSQL operations
-6. **nosql_executor.py**: Executes NoSQL operations
-
-### Why This Design?
-
-- **Simple**: Each file has one clear purpose
-- **Maintainable**: Easy to modify individual components
-- **Explainable**: Clear flow of data through layers
-- **Testable**: Each component can be tested separately
 
 ## Demo Workflow
 

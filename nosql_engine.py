@@ -1,8 +1,3 @@
-"""
-NoSQL Engine - JSON processing with custom parser (no json library)
-INCLUDES custom JSON parser built from scratch
-"""
-
 class JSONParser:
     """Custom JSON Parser - No external libraries"""
     def __init__(self):

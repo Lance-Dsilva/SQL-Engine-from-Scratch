@@ -1,12 +1,3 @@
-"""
-Query Executor - Executes SQL-like operations
-
-Simple logic:
-1. Start with data
-2. Apply each operation in order
-3. Return result
-"""
-
 from csv_parser import CSVParser
 from merge_sort import _execute_chunked_external_orderby
 
@@ -51,13 +42,7 @@ class QueryExecutor:
         return result
     
     def _execute_chunked(self, operations):
-        """
-        Advanced chunk execution without parallel processing.
-        Features:
-        - JOIN  → fallback to full in-memory execution (must see both tables)
-        - ORDER BY (no GROUP BY/HAVING) → external merge sort
-        - Simple WHERE + SELECT + LIMIT → process one chunk at a time
-        """
+        """Execute operations in chunked mode"""
         # Detect expensive operations
         has_join = any(op['type'] == 'join' for op in operations)
         has_orderby = any(op['type'] == 'orderby' for op in operations)
@@ -81,13 +66,7 @@ class QueryExecutor:
         return self._execute_chunked_simple(operations)
     
     def _execute_chunked_simple(self, operations):
-        """
-        Simple chunk execution:
-        - Applies filters and selects to each chunk
-        - Accumulates results
-        - Applies GROUP BY at the end if needed
-        - Supports LIMIT early stopping
-        """
+        """Simple chunked execution for filters, selects, group by, limit"""
         parser = CSVParser()
         results = []
 
@@ -295,8 +274,6 @@ class QueryExecutor:
     
     def _apply_having(self, data, op):
         """HAVING - filters grouped results"""
-        # HAVING only makes sense after GROUP BY
-        # Data should be grouped result like [{'category': 'A', 'count': 10}, ...]
         
         if not isinstance(data, list) or len(data) == 0:
             return data

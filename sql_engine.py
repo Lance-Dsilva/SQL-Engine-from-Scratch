@@ -1,13 +1,3 @@
-"""
-SQL Engine - Simple and Easy to Explain
-
-Structure:
-1. Load data (main table)
-2. Optionally load join table
-3. Build query operations
-4. Execute query
-"""
-
 from csv_parser import CSVParser
 from query_executor import QueryExecutor
 import tempfile

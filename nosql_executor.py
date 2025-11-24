@@ -1,7 +1,3 @@
-"""
-NoSQL Query Executor with JOIN/Lookup support
-"""
-
 class NoSQLExecutor:
     def __init__(self, data, join_data=None):
         self.data = data
