@@ -5,7 +5,7 @@ class CSVParser:
     
     def parse_file(self, file_obj):
         """Parse entire CSV file"""
-        content = file_obj.read() ## read the whole file in memory
+        content = file_obj.read()
         if isinstance(content, bytes):
             content = content.decode('utf-8')
         lines = content.strip().split('\n')
