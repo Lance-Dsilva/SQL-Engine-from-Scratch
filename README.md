@@ -68,7 +68,7 @@ streamlit run app.py
 
 - Custom parsers (no pandas, no csv library)
 - Chunking support for large files (up to 500MB)
-- JOIN operations with multiple tables
+- JOIN operations with two tables
 - SQL-like query building interface
 - NoSQL document operations
 
@@ -89,7 +89,7 @@ streamlit run app.py
 - **NoSQL engine (`nosql_engine.py`, `nosql_executor.py`)**  
   Includes a hand-written JSON parser/executor that loads documents, applies filter/project/group/limit operations, and mirrors the SQL interface for JSON datasets.
 
-## Code Explanation (For Professors)
+## Code Explanation
 
 ### Architecture
 ```
