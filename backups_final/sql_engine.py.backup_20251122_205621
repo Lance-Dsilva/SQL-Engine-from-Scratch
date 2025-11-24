@@ -1,0 +1,331 @@
+"""
+SQL Engine - Simple and Easy to Explain
+
+Structure:
+1. Load data (main table)
+2. Optionally load join table
+3. Build query operations
+4. Execute query
+"""
+
+from csv_parser import CSVParser
+from query_executor import QueryExecutor
+import tempfile
+
+class SQLEngine:
+    def __init__(self):
+        # Main table
+        self.data = None
+        self.headers = None
+        self.filename = None
+        self.chunked = False
+        self.chunk_size = None
+        self.file_path = None
+        
+        # Join table
+        self.join_data = None
+        self.join_headers = None
+        self.join_filename = None
+        
+        # Operations
+        self.operations = []
+    
+    def load_data(self, file_obj, chunk_size=None):
+        """Load main CSV file"""
+        try:
+            parser = CSVParser()
+            
+            if chunk_size:
+                # Save to temp file for chunking
+                with tempfile.NamedTemporaryFile(mode='wb', delete=False, suffix='.csv') as tmp:
+                    tmp.write(file_obj.getvalue())
+                    self.file_path = tmp.name
+                
+                self.headers, estimated_rows = parser.get_file_info(self.file_path)
+                self.chunked = True
+                self.chunk_size = chunk_size
+                self.data = None
+            else:
+                result = parser.parse_file(file_obj)
+                self.headers = result['headers']
+                self.data = result['data']
+                self.chunked = False
+            
+            self.filename = file_obj.name
+            self.operations = []
+            return True, f"Loaded {self.filename}"
+        except Exception as e:
+            return False, f"Error: {str(e)}"
+    
+    def load_join_table(self, file_obj):
+        """Load second table for JOIN operation"""
+        try:
+            parser = CSVParser()
+            result = parser.parse_file(file_obj)
+            
+            self.join_data = result['data']
+            self.join_headers = result['headers']
+            self.join_filename = file_obj.name
+            
+            return True, f"Loaded join table: {self.join_filename}"
+        except Exception as e:
+            return False, f"Error: {str(e)}"
+    
+    def has_join_table(self):
+        """Check if join table is loaded"""
+        return self.join_data is not None
+    
+    def get_join_table_info(self):
+        """Get join table information"""
+        return {
+            'filename': self.join_filename,
+            'columns': self.join_headers,
+            'rows': len(self.join_data)
+        }
+    
+    def preview_join_table(self, n=10):
+        """Preview join table data"""
+        return self.join_data[:n] if self.join_data else []
+    
+    def preview_join_result(self, n=10):
+        """Preview what the join will look like"""
+        if not self.join_data:
+            return None
+        
+        # Find join operation
+        join_ops = [op for op in self.operations if op['type'] == 'join']
+        if not join_ops:
+            return None
+        
+        join_op = join_ops[0]
+        
+        # Get preview data
+        if self.chunked:
+            parser = CSVParser()
+            for chunk in parser.parse_file_in_chunks(self.file_path, self.chunk_size):
+                preview_data = chunk[:n]
+                break
+        else:
+            preview_data = self.data[:n]
+        
+        # Perform join on preview
+        executor = QueryExecutor(
+            preview_data, self.headers, None,
+            False, None,
+            self.join_data, self.join_headers
+        )
+        
+        return executor._apply_join(preview_data, join_op)
+    
+    def clear_join_table(self):
+        """Remove join table"""
+        self.join_data = None
+        self.join_headers = None
+        self.join_filename = None
+        # Remove join operations
+        self.operations = [op for op in self.operations if op['type'] != 'join']
+    
+    def is_loaded(self):
+        """Check if main table is loaded"""
+        return self.headers is not None
+    
+    def get_info(self):
+        """Get main table information"""
+        if self.chunked:
+            import os
+            file_size = os.path.getsize(self.file_path)
+            estimated_rows = file_size // 100
+            mode = f"Chunked ({self.chunk_size:,} rows/batch)"
+        else:
+            estimated_rows = len(self.data)
+            mode = "Normal (all in memory)"
+        
+        return {
+            'filename': self.filename,
+            'rows': estimated_rows,
+            'columns': len(self.headers),
+            'mode': mode
+        }
+    
+    def get_columns(self):
+        """Get column names from main table"""
+        return self.headers if self.headers else []
+    
+    def get_all_columns(self):
+        """Get all columns (main + join tables)"""
+        all_cols = self.headers[:] if self.headers else []
+        if self.join_headers:
+            # Add join table columns with prefix to avoid confusion
+            all_cols.extend([f"{self.join_filename.split('.')[0]}.{col}" for col in self.join_headers])
+        return all_cols
+    
+    def preview(self, n=10):
+        """Preview data"""
+        if self.chunked:
+            parser = CSVParser()
+            for chunk in parser.parse_file_in_chunks(self.file_path, self.chunk_size):
+                return chunk[:n]
+        else:
+            return self.data[:n] if self.data else []
+    
+    def add_select(self, columns):
+        """Add SELECT operation"""
+        self.operations.append({
+            'type': 'select',
+            'columns': columns,
+            'description': f"SELECT {', '.join(columns)}"
+        })
+    
+    def add_join(self, join_type, main_key, join_key):
+        """Add JOIN operation"""
+        self.operations.append({
+            'type': 'join',
+            'join_type': join_type,
+            'main_key': main_key,
+            'join_key': join_key,
+            'description': f"{join_type} JOIN ON {main_key} = {join_key}"
+        })
+    
+    def add_filter(self, column, operator, value):
+        """Add WHERE filter"""
+        self.operations.append({
+            'type': 'filter',
+            'column': column,
+            'operator': operator,
+            'value': value,
+            'description': f"WHERE {column} {operator} {value}"
+        })
+    
+    def add_groupby(self, column, agg_func=None, agg_column=None):
+        """Add GROUP BY operation"""
+        desc = f"GROUP BY {column}"
+        if agg_func:
+            desc += f", {agg_func}({agg_column})"
+        
+        self.operations.append({
+            'type': 'groupby',
+            'column': column,
+            'agg_func': agg_func,
+            'agg_column': agg_column,
+            'description': desc
+        })
+    
+    def add_having(self, function, operator, value):
+        """Add HAVING operation"""
+        self.operations.append({
+            'type': 'having',
+            'function': function,
+            'operator': operator,
+            'value': value,
+            'description': f"HAVING {function} {operator} {value}"
+        })
+    
+    def add_having(self, function, operator, value):
+        """Add HAVING operation"""
+        self.operations.append({
+            'type': 'having',
+            'function': function,
+            'operator': operator,
+            'value': value,
+            'description': f"HAVING {function} {operator} {value}"
+        })
+    
+    def add_orderby(self, column, direction):
+        """Add ORDER BY operation"""
+        self.operations.append({
+            'type': 'orderby',
+            'column': column,
+            'direction': direction,
+            'description': f"ORDER BY {column} {direction}"
+        })
+    
+    def add_limit(self, n):
+        """Add LIMIT operation"""
+        self.operations.append({
+            'type': 'limit',
+            'value': n,
+            'description': f"LIMIT {n}"
+        })
+    
+    def get_operations(self):
+        """Get all operations"""
+        return self.operations
+    
+    def remove_operation(self, index):
+        """Remove operation at index"""
+        if 0 <= index < len(self.operations):
+            self.operations.pop(index)
+    
+    def clear_operations(self):
+        """Clear all operations"""
+        self.operations = []
+    
+    def get_query_text(self):
+        """Generate SQL-like query text"""
+        query_parts = []
+        
+        # SELECT
+        select_ops = [op for op in self.operations if op['type'] == 'select']
+        if select_ops:
+            cols = select_ops[0]['columns']
+            query_parts.append(f"SELECT {', '.join(cols)}")
+        else:
+            query_parts.append("SELECT *")
+        
+        # FROM
+        query_parts.append(f"FROM {self.filename}")
+        
+        # JOIN
+        join_ops = [op for op in self.operations if op['type'] == 'join']
+        if join_ops:
+            for jop in join_ops:
+                query_parts.append(f"{jop['join_type']} JOIN {self.join_filename}")
+                query_parts.append(f"  ON {jop['main_key']} = {jop['join_key']}")
+        
+        # WHERE
+        filter_ops = [op for op in self.operations if op['type'] == 'filter']
+        if filter_ops:
+            conditions = [f"{op['column']} {op['operator']} {op['value']}" for op in filter_ops]
+            query_parts.append(f"WHERE {' AND '.join(conditions)}")
+        
+        # GROUP BY
+        group_ops = [op for op in self.operations if op['type'] == 'groupby']
+        if group_ops:
+            for gop in group_ops:
+                query_parts.append(f"GROUP BY {gop['column']}")
+                if gop.get('agg_func'):
+                    query_parts.append(f"  {gop['agg_func']}({gop['agg_column']})")
+        
+        # HAVING
+        having_ops = [op for op in self.operations if op['type'] == 'having']
+        if having_ops:
+            conditions = [f"{op['function']} {op['operator']} {op['value']}" for op in having_ops]
+            query_parts.append(f"HAVING {' AND '.join(conditions)}")
+        
+        # ORDER BY
+        order_ops = [op for op in self.operations if op['type'] == 'orderby']
+        if order_ops:
+            orders = [f"{op['column']} {op['direction']}" for op in order_ops]
+            query_parts.append(f"ORDER BY {', '.join(orders)}")
+        
+        # LIMIT
+        limit_ops = [op for op in self.operations if op['type'] == 'limit']
+        if limit_ops:
+            query_parts.append(f"LIMIT {limit_ops[0]['value']}")
+        
+        return "\n".join(query_parts)
+    
+    def execute(self):
+        """Execute query"""
+        try:
+            executor = QueryExecutor(
+                self.data, self.headers, self.file_path,
+                self.chunked, self.chunk_size,
+                self.join_data, self.join_headers
+            )
+            return executor.execute(self.operations)
+        except Exception as e:
+            print(f"Execution error: {e}")
+            import traceback
+            traceback.print_exc()
+            return None

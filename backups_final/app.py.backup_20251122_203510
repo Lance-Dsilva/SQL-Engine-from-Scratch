@@ -90,75 +90,46 @@ with tab1:
                 
                 st.divider()
                 
-                # Join configuration - ALWAYS visible when join table loaded
-                st.write("**Configure Join:**")
-                
+                # Join configuration
+                st.write("Configure Join:")
                 col1, col2 = st.columns(2)
                 with col1:
-                    join_type = st.selectbox(
-                        "Join Type", 
-                        ["INNER", "LEFT", "RIGHT"], 
-                        key="join_type_select",
-                        help="Select the type of join"
-                    )
-                with col2:
-                    # Placeholder to balance columns
-                    st.write("")
+                    join_type = st.selectbox("Join Type", ["INNER", "LEFT", "RIGHT"], key="join_type_select")
                 
+                # Force display of join keys immediately
+                join_info = st.session_state.sql_engine.get_join_table_info()
                 col1, col2 = st.columns(2)
                 with col1:
-                    main_key = st.selectbox(
-                        "Main table key", 
-                        main_columns, 
-                        key="main_join_key",
-                        help="Column from main table"
-                    )
+                    main_key = st.selectbox("Main table key", main_columns, key="main_join_key")
                 with col2:
-                    join_key = st.selectbox(
-                        "Join table key", 
-                        join_info['columns'], 
-                        key="join_join_key",
-                        help="Column from join table"
-                    )
+                    # Always show join columns even before other dropdowns are selected
+                    join_key = st.selectbox("Join table key", join_info['columns'], key="join_join_key")
                 
-                col1, col2 = st.columns(2)
-                with col1:
-                    if st.button("Add JOIN", key="add_join", type="primary", use_container_width=True):
-                        st.session_state.sql_engine.add_join(join_type, main_key, join_key)
-                        st.success(f"✓ {join_type} JOIN added on {main_key} = {join_key}")
-                
-                with col2:
-                    if st.button("Remove Join Table", key="remove_join_table", use_container_width=True):
-                        st.session_state.sql_engine.clear_join_table()
-                        st.info("Join table removed")
+                if st.button("Add JOIN", key="add_join"):
+                    st.session_state.sql_engine.add_join(join_type, main_key, join_key)
+                    st.success("JOIN added")
                 
                 # Show join preview if JOIN operation exists
                 join_ops = [op for op in st.session_state.sql_engine.get_operations() if op['type'] == 'join']
                 if join_ops:
-                    st.divider()
-                    st.write("**Preview Join Result (First 10 rows):**")
+                    st.write("Preview Join Result (First 10 rows):")
                     join_preview_result = st.session_state.sql_engine.preview_join_result(10)
                     if join_preview_result:
                         st.dataframe(join_preview_result, use_container_width=True)
-                    else:
-                        st.info("Add join keys and click 'Add JOIN' to see preview")
                 
+                if st.button("Remove Join Table", key="remove_join_table"):
+                    st.session_state.sql_engine.clear_join_table()
+                    st.info("Join table removed")
             else:
-                st.info("📤 Upload a second CSV file to perform JOIN operations")
                 join_file = st.file_uploader("Upload second CSV for JOIN", type=['csv'], key="join_upload")
-                
                 if join_file:
-                    col1, col2 = st.columns([1, 2])
-                    with col1:
-                        if st.button("Load Join Table", key="load_join", type="primary"):
-                            with st.spinner("Loading join table..."):
-                                success, message = st.session_state.sql_engine.load_join_table(join_file)
-                                if success:
-                                    st.success(message)
-                                    st.balloons()  # Visual feedback
-                                    st.rerun()  # Force refresh to show join options immediately
-                                else:
-                                    st.error(message)
+                    if st.button("Load Join Table", key="load_join"):
+                        with st.spinner("Loading join table..."):
+                            success, message = st.session_state.sql_engine.load_join_table(join_file)
+                            if success:
+                                st.success(message)
+                            else:
+                                st.error(message)
         
         # 3. WHERE
         with st.expander("3. WHERE (Filter Rows)", expanded=False):
@@ -339,71 +310,43 @@ with tab2:
                 st.success(f"Join collection loaded: {join_info['filename']} ({join_info['count']} documents)")
                 
                 # Show join collection preview (INSIDE the JOIN expander)
-                st.write("**Preview Join Collection:**")
+                st.write("Preview Join Collection:")
                 join_preview = st.session_state.nosql_engine.preview_join_collection(3)
                 st.json(join_preview)
-                
-                st.divider()
-                
-                # Join configuration - ALWAYS visible
-                st.write("**Configure Join:**")
                 
                 join_fields = st.session_state.nosql_engine.get_join_fields()
                 
                 col1, col2 = st.columns(2)
                 with col1:
-                    main_field = st.selectbox(
-                        "Main collection field", 
-                        fields, 
-                        key="nosql_main_field",
-                        help="Field from main collection"
-                    )
+                    main_field = st.selectbox("Main collection field", fields, key="nosql_main_field")
                 with col2:
-                    join_field = st.selectbox(
-                        "Join collection field", 
-                        join_fields, 
-                        key="nosql_join_field",
-                        help="Field from join collection"
-                    )
+                    join_field = st.selectbox("Join collection field", join_fields, key="nosql_join_field")
                 
-                col1, col2 = st.columns(2)
-                with col1:
-                    if st.button("Add Join (Lookup)", key="nosql_add_join", type="primary", use_container_width=True):
-                        st.session_state.nosql_engine.add_join(main_field, join_field)
-                        st.success(f"✓ Join added on {main_field} = {join_field}")
-                
-                with col2:
-                    if st.button("Remove Join Collection", key="nosql_remove_join", use_container_width=True):
-                        st.session_state.nosql_engine.clear_join_collection()
-                        st.info("Join collection removed")
+                if st.button("Add Join (Lookup)", key="nosql_add_join"):
+                    st.session_state.nosql_engine.add_join(main_field, join_field)
+                    st.success("Join operation added")
                 
                 # Show join preview
                 join_ops = [op for op in st.session_state.nosql_engine.get_operations() if op['type'] == 'join']
                 if join_ops:
-                    st.divider()
-                    st.write("**Preview Join Result (First 3 documents):**")
+                    st.write("Preview Join Result (First 3 documents):")
                     join_result = st.session_state.nosql_engine.preview_join_result(3)
                     if join_result:
                         st.json(join_result)
-                    else:
-                        st.info("Add join fields and click 'Add Join' to see preview")
                 
+                if st.button("Remove Join Collection", key="nosql_remove_join"):
+                    st.session_state.nosql_engine.clear_join_collection()
+                    st.info("Join collection removed")
             else:
-                st.info("📤 Upload a second JSON file to perform JOIN/Lookup operations")
                 join_json = st.file_uploader("Upload second JSON for Join/Lookup", type=['json'], key="nosql_join_upload")
-                
                 if join_json:
-                    col1, col2 = st.columns([1, 2])
-                    with col1:
-                        if st.button("Load Join Collection", key="nosql_load_join", type="primary"):
-                            with st.spinner("Loading join collection..."):
-                                success, message = st.session_state.nosql_engine.load_join_collection(join_json)
-                                if success:
-                                    st.success(message)
-                                    st.balloons()  # Visual feedback
-                                    st.rerun()  # Force refresh to show join options
-                                else:
-                                    st.error(message)
+                    if st.button("Load Join Collection", key="nosql_load_join"):
+                        with st.spinner("Loading join collection..."):
+                            success, message = st.session_state.nosql_engine.load_join_collection(join_json)
+                            if success:
+                                st.success(message)
+                            else:
+                                st.error(message)
         
         # 3. Project
         with st.expander("3. Project Fields", expanded=False):
